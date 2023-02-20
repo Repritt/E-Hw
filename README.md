@@ -41,7 +41,7 @@ npm run dev
         - OddsHome
         - OddsAway
         - Payout
-        - PlayTime - čas, kdy se má hrát zápas / u probíhajícího zápasu píše, kolikatá to je set
+        - PlayTime - čas, kdy se má hrát zápas / u probíhajícího zápasu píše, kolikatý to je set
         - UpdateTime - čas, kdy se záznam naposledy aktualizoval na server
         - URL s odkazem na oddsPortal daného zápasu
     - Data se aktualizují s každou sekundu z backendu
