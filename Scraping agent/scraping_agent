@@ -1,0 +1,205 @@
+import requests as r
+from bs4 import BeautifulSoup
+
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+
+from webdriver_manager.chrome import ChromeDriverManager
+import time
+
+#for API calls->not working properly
+callIDs = []
+#storing data
+matches = dict()
+#storing pages for one cycle
+pages = []
+
+#get all pages of current turnaments
+def getTurnamentPages():
+    pages.clear()
+    url = "https://www.oddsportal.com/tennis/"
+    driver.get(url)
+    time.sleep(1)
+    soup = BeautifulSoup(driver.page_source, "lxml")
+    #table = soup.find("div", {})
+    for a in soup.find_all('li', {'class': "flex items-center justify-start w-1/2 h-10 gap-1 pl-3 underline border-b border-r max-sm:w-full border-black-borders"}):
+        turnamentUrl = a.find_all('a', href=True)[0]["href"]
+        #print(turnamentUrl)
+        pages.append(turnamentUrl)
+    return pages 
+
+#open turnament page and scrape not finished matches
+def GetPageData(url):
+    count = 0
+    while True:
+        try:
+            driver.get("https://www.oddsportal.com" + url)
+            time.sleep(0.5)
+            for a in WebDriverWait(driver, delay).until(EC.presence_of_all_elements_located((By.XPATH, '/html/body/div[1]/div/div[1]/div/main/div[2]/div[7]/div[1]/div'))):
+                try:
+                    getMatch(a)
+                except:
+                    print("Match not loaded")
+            return
+        except:
+            count += 1
+            print(f"Page not loaded {url}")
+            if(count>5):
+                print("mega timeout error")
+                return
+        
+#instance of match
+class Match:
+    #create new match instance
+    def __init__(self, PH, PA, OH, OA, T, URL, MatchID):
+        self.matchID = MatchID
+        self.playerHome = PH
+        self.playerAway = PA
+        self.oddsHome = float(OH)
+        self.oddsAway = float(OA)
+        self.PlayTime = T
+        self.Payout = (self.oddsHome * self.oddsAway)/(self.oddsHome + self.oddsAway)
+        self.URL = URL
+        self.send_data()
+        print(f"{self.PlayTime}: {self.playerHome} vs {self.playerAway}: {self.oddsHome} vs {self.oddsAway} PAYOUT: {self.Payout}: {URL}")
+
+    #update match instance
+    def update(self, OH, OA):
+        oddsHome = float(OH)
+        oddsAway = float(OA)
+        payout = (oddsHome * oddsAway)/(oddsHome + oddsAway)
+        if payout != self.Payout:   
+            print(f"Update: {self.PlayTime}: {self.playerHome} vs {self.playerAway}: {self.oddsHome}/{self.oddsAway} => {oddsHome}/{oddsAway} PAYOUT: {self.payout:.3f}->{payout:.3f}: {self.URL}")
+            self.oddsHome = oddsHome
+            self.oddsAway = oddsAway
+            self.Payout = payout
+        self.send_data()
+    
+    #send data to backend in JSON
+    def send_data(self):
+        data = {
+            "MatchID": self.matchID,
+            "PlayerHome": self.playerHome,
+            "PlayerAway": self.playerAway,
+            "OddsHome": self.oddsHome,
+            "OddsAway": self.oddsAway,
+            "PlayTime": self.PlayTime,
+            "Payout": self.Payout,
+            "URL": self.URL
+        }
+        response = r.post("http://127.0.0.1:8000/bettingMatches", json=data)
+        return response.text
+            
+#Parse match from selenium
+def getMatch(element):
+    try:
+        URL = element.find_element(By.XPATH, ".//*/div/a").get_attribute('href')
+        matchID = URL[:-1].split("-")[-1]
+        playerHome = element.find_element(By.XPATH, ".//*/div/a/div[2]/div/a[1]/div").text
+        playerAway = element.find_element(By.XPATH, ".//*/div/a/div[2]/div/a[2]/div").text
+        oddHome = float(element.find_element(By.XPATH, ".//*/div/div[1]/div/span/p").text)
+        oddAway = float(element.find_element(By.XPATH, ".//*/div/div[2]/div/span/p").text)
+        PlayTime = element.find_element(By.XPATH, "//*/div/a/div[1]/div/p").text
+        if matchID in matches:
+            matches[matchID].update(oddHome, oddAway)
+        else:
+            matches[matchID] = Match(playerHome, playerAway, oddHome, oddAway, PlayTime, URL, matchID)
+    except Exception as e:
+        print(f"Not parsed match: {URL}")
+        pass 
+        #print(e)
+
+
+
+driver = webdriver.Chrome(ChromeDriverManager().install())
+delay = 3
+#login 
+driver.get("https://www.oddsportal.com/")
+WebDriverWait(driver, delay).until(EC.presence_of_element_located((By.XPATH, '//*[@id="app"]/div/header/div[2]/div[5]/div[1]'))).click()
+time.sleep(0.5)
+WebDriverWait(driver, delay).until(EC.presence_of_element_located((By.XPATH, '//*[@id="login-username-sign"]'))).send_keys("Benda")
+time.sleep(0.5)
+WebDriverWait(driver, delay).until(EC.presence_of_element_located((By.XPATH, '//*[@id="login-password-sign-m"]'))).send_keys("vkp8ydf0EGY-zxz_nkz")
+time.sleep(0.5)
+WebDriverWait(driver, delay).until(EC.presence_of_element_located((By.XPATH, '//*[@id="loginDiv"]/div[2]/div/div/form/div[4]/span/input'))).click()
+time.sleep(1)
+
+while True:
+    
+    start = time.time()
+    getTurnamentPages()
+    for page in pages:
+        GetPageData(page)
+    end = time.time()   
+    print(f"Cycle length: {end - start}")
+
+
+#Comented API calls
+"""
+        #time.sleep(3)
+        for a in WebDriverWait(driver, delay).until(EC.presence_of_all_elements_located((By.XPATH, '/html/body/div[1]/div/div[1]/div/main/div[2]/div[7]/div[1]/div'))):
+            getMatch(a)
+    
+    #print(r.get("https://www.oddsportal.com/ajax-sport-country-tournament_/2/Y7cEXeAJ/X0/1/?_=1676644034").content)
+    Func = open("data.html","w")
+    Func.write(driver.page_source)
+    Func.close()
+    source = open('data.html', 'r')
+    Lines = source.readlines()
+    #parse for bookiehash and pagetime
+    try:
+        for line in Lines:
+            
+            if '"id":' in line:
+                dum = line.split("'")[-2]
+                dumJson = json.loads(dum)
+                callID = dumJson["id"]
+        for line in Lines:
+            if '{"usePremium":1,"bookiehash":"' in line:
+                try: 
+                    print(line)
+                    idx = line.index('{"usePremium":1,"bookiehash":"')
+                    print(idx)
+                    SessionID = line[idx+30:idx+140]
+                    #print(PageTime)
+                    break
+                except:
+                    pass
+        #pokus = WebDriverWait(driver, delay).until(EC.presence_of_element_located((By.CLASS_NAME, "flex flex-col px-3 text-sm max-mm:px-0")))
+    except Exception as e:
+        print(e)
+    break
+driver.switch_to.new_window()
+#scrape for api calls
+while True:
+    #driver.switch_to.new_window()
+    try:
+        driver.get(f"https://www.oddsportal.com/ajax-sport-country-tournament_/2/{callID}/{SessionID}/1/")
+        time.sleep(0.5)
+        content = driver.page_source
+        split_string = content.split("<")
+
+        final_string = []
+        for substr in split_string:
+            if ">" in substr:
+                final_string.append(substr.split(">")[1])
+            else:
+                final_string.append(substr)
+
+        #print(final_string[6])
+        
+        data = json.loads(final_string[6])
+        data = data["d"]["oddsData"]
+        #print(data)
+        for match_id, match_data in data.items():
+            if match_id in matches:
+                matches[match_id].update(match_data["odds"][0]["maxOdds"], match_data["odds"][1]["maxOdds"])
+            #print(match_id, match_data)
+        time.sleep(5)
+    except Exception as e:
+        time.sleep(5)
+        print(e)
+"""
